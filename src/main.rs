@@ -11,7 +11,7 @@ fn watch_with_callback(path: &path::Path, mut callback: impl FnMut()) -> notify:
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(500))?;
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(250))?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
@@ -36,6 +36,26 @@ struct Args {
     cmd: Command,
 }
 
+impl Args {
+    fn sub_args(&mut self) {
+        let new_args: Vec<&std::ffi::OsStr> = self
+            .cmd
+            .get_args()
+            .map(|arg| {
+                if arg == "@1" {
+                    self.filename.as_os_str()
+                } else {
+                    arg
+                }
+            })
+            .collect();
+
+        let mut subbed_cmd = Command::new(self.cmd.get_program());
+        subbed_cmd.args(new_args);
+        self.cmd = subbed_cmd;
+    }
+}
+
 fn execute_cmd(cmd: &mut Command) {
     cmd.spawn().expect("something went wrong");
     println!();
@@ -47,17 +67,16 @@ fn parse_file(file: &str) -> Result<path::PathBuf, String> {
         .and_then(|cur_dir| {
             let p = path::Path::new(file);
             let fqpn = cur_dir.join(p);
-            if fqpn.is_file() {
+            if fqpn.is_file() || fqpn.is_dir() {
                 Ok(fqpn)
             } else {
-                Err(String::from("is not valid file"))
+                Err(String::from("is not valid file or directory"))
             }
         })
 }
 
 fn parse_cmd(cmd: &str) -> Result<Command, String> {
     let arg_vec: Vec<&str> = cmd.split(' ').collect();
-    println!("args: {:?}", arg_vec);
     match arg_vec.split_at(1) {
         ([base_cmd], []) => Ok(Command::new(base_cmd)),
         ([base_cmd], args) => {
@@ -71,17 +90,13 @@ fn parse_cmd(cmd: &str) -> Result<Command, String> {
 
 /**
  * TODO:
- *  Get it so that you can do watch filename cmd: DONE
+ *  Get it so you can watch a directory: DONE
+ *  Get it so that you can specify multiple files or paths.      
  *  validate filename: needs better error handling?
- *  support relative paths
- *  support tab completion for paths
- *  get notified on file change: DONE
- *  run cmd on file change: DONE
- *  refactor
  */
 
 fn main() {
-    let cli = Args::parse();
-    let mut cmd = cli.cmd;
-    let _res = watch_with_callback(cli.filename.as_path(), || execute_cmd(&mut cmd));
+    let mut cli = Args::parse();
+    cli.sub_args();
+    let _res = watch_with_callback(cli.filename.as_path(), || execute_cmd(&mut cli.cmd));
 }
